@@ -15,3 +15,4 @@ I have absolutely no idea if this is a safe and secure way to do authentication.
 # Credits:
 
 I used large code snippets of SolarisDev09's [AdvancedPlayFab](https://github.com/SolarisDev09/AdvancedPlayfab?tab=readme-ov-file) and JokerJosh0's [EasyPlayFab](https://github.com/JokerJosh0/EasyPlayfab).
+I also used some random PlayFab login script from 2023. It will be in this repo.
