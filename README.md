@@ -7,6 +7,7 @@ A login system for VR games made for a Oculus Quest.
 - [Photon VR (I used my forked version of it but I don't think it will be necessary to use it)](https://github.com/fchb1239/PhotonVR) [Forked version](https://github.com/TMTimeVR/PhotonVR)
 - [The Meta XR All-in-One SDK](https://assetstore.unity.com/packages/tools/integration/meta-xr-all-in-one-sdk-269657)
 - TextMeshPro
+- [Glitched Cat Studios's Wardrobe System](https://github.com/Glitched-Cat-Studios/GCS-Wardrobe)
 
 # DISCLAIMER:
 
@@ -22,7 +23,7 @@ The APK hash verification code snippet (line 1043 - 1068) was made by ![MaxNifty
 
 # Setup:
 
-1. Import the PhotonVR, Photon PUN, Photon Voice and the PlayFab Unity package. You might get prompted to import the TextMeshPro package. Please import it.
+1. Import the PhotonVR, Photon PUN, GCS Wardrobe System, Photon Voice and the PlayFab Unity package. You might get prompted to import the TextMeshPro package. Please import it.
 
 2. Go to your PlayFab title and click on "Settings" and then "API Features":
    ![](https://github.com/TMTimeVR/PlayFab-Login-System/blob/main/guide/enable%20settings.png?raw=true)
