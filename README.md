@@ -18,6 +18,10 @@ I have absolutely no idea if this is a safe and secure way to do authentication.
 I used large code snippets of SolarisDev09's [AdvancedPlayFab](https://github.com/SolarisDev09/AdvancedPlayfab?tab=readme-ov-file) and JokerJosh0's [EasyPlayFab](https://github.com/JokerJosh0/EasyPlayfab).
 I also used [some random PlayFab login script from 2023](https://github.com/TMTimeVR/PlayFab-Login-System/blob/main/SomeRandomPlayFabLoginScriptFrom2023.cs). I think it was made by someone called "MONKI".
 
+The APK hash verification code snippet (line 1043 - 1068) was made by ![MaxNiftyNine](https://github.com/MaxNiftyNine). This guide was used:
+
+![](https://github.com/TMTimeVR/PlayFab-Login-System/raw/refs/heads/main/guide/How%20to%20add%20anticheat%20to%20your%20gorilla%20tag%20fan%20game%20(stop%20moddinghacking).mp4)
+
 # Setup:
 
 1. Import the PhotonVR, Photon PUN, Photon Voice and the PlayFab Unity package. You might get prompted to import the TextMeshPro package. Please import it.
