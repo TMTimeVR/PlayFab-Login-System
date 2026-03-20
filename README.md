@@ -19,3 +19,5 @@ I also used [some random PlayFab login script from 2023](https://github.com/TMTi
 
 # Setup:
 
+1. Go to your PlayFab title and click on "Settings" and then "API Features":
+   ![](https://github.com/TMTimeVR/PlayFab-Login-System/blob/main/guide/enable%20settings.png?raw=true)
