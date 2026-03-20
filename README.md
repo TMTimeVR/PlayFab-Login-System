@@ -32,3 +32,5 @@ The APK hash verification code snippet (line 1043 - 1068) was made by ![MaxNifty
    ![](https://github.com/TMTimeVR/PlayFab-Login-System/blob/main/guide/AddTitleID.png?raw=true)
 
 4. Follow the [GCS Wardrobe setup guide](https://github.com/TMTimeVR/PlayFab-Login-System/raw/refs/heads/main/guide/GCSWARDROBETUTORIAL.mp4) (Made by The Tech Wizard (I think)).
+
+5. Go to line 972 - 997 and follow ![MaxNiftyNine's tutorial](https://github.com/TMTimeVR/PlayFab-Login-System/raw/refs/heads/main/guide/How%20to%20add%20anticheat%20to%20your%20gorilla%20tag%20fan%20game%20(stop%20moddinghacking).mp4).
