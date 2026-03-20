@@ -25,4 +25,5 @@ I also used [some random PlayFab login script from 2023](https://github.com/TMTi
 2. Go to your PlayFab title and click on "Settings" and then "API Features":
    ![](https://github.com/TMTimeVR/PlayFab-Login-System/blob/main/guide/enable%20settings.png?raw=true)
 
-3. 
+3. At the top of your window, click "PlayFab" and then "MakePlayFabSharedSettings".
+   ![](https://github.com/TMTimeVR/PlayFab-Login-System/blob/main/guide/AddTitleID.png?raw=true)
