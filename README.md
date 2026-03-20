@@ -31,4 +31,4 @@ The APK hash verification code snippet (line 1043 - 1068) was made by ![MaxNifty
 3. At the top of your window, click "PlayFab" and then "MakePlayFabSharedSettings".
    ![](https://github.com/TMTimeVR/PlayFab-Login-System/blob/main/guide/AddTitleID.png?raw=true)
 
-4. Follow the [GCS Wardrobe setup guide](https://github.com/TMTimeVR/PlayFab-Login-System/raw/refs/heads/main/guide/GCSWARDROBETUTORIAL.mp4).
+4. Follow the [GCS Wardrobe setup guide](https://github.com/TMTimeVR/PlayFab-Login-System/raw/refs/heads/main/guide/GCSWARDROBETUTORIAL.mp4) (Made by The Tech Wizard (I think)).
