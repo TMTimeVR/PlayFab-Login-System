@@ -19,8 +19,7 @@ I also used [some random PlayFab login script from 2023](https://github.com/TMTi
 
 # Setup:
 
-1. Import the PhotonVR and the PlayFab Unity package.
-   -# You might get prompted to import the TextMeshPro package. Please import it.
+1. Import the PhotonVR and the PlayFab Unity package. You might get prompted to import the TextMeshPro package. Please import it.
 
 3. Go to your PlayFab title and click on "Settings" and then "API Features":
    ![](https://github.com/TMTimeVR/PlayFab-Login-System/blob/main/guide/enable%20settings.png?raw=true)
