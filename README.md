@@ -10,6 +10,7 @@ A login system for VR games made for a Oculus Quest.
 
 # DISCLAIMER:
 
+**Yes, AI was used in this system.**
 I have absolutely no idea if this is a safe and secure way to do authentication. This is an older version of the backend of [Monkey Mall](https://www.meta.com/en-gb/experiences/chimpstitute/6878051502218331/).
 
 # Credits:
