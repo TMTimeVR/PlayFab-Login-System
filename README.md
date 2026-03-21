@@ -11,7 +11,7 @@ A login system for VR games made for a Oculus Quest.
 
 # DISCLAIMER:
 
-**Yes, AI was used in this system.**
+**Yes, AI (Claude) was used in this system. Claude was used as a second pair of eyes, not just something that generates code that I instantly put into this system.**
 I have absolutely no idea if this is a safe and secure way to do authentication. This is an older version of the backend in [Monkey Mall](https://www.meta.com/en-gb/experiences/chimpstitute/6878051502218331/).
 
 # Credits:
