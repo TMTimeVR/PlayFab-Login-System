@@ -23,18 +23,38 @@ The APK hash verification code snippet (line 824 - 849) was made by ![MaxNiftyNi
 
 # Setup:
 
-1. Import the PhotonVR, Photon PUN, GCS Wardrobe System, Photon Voice and the PlayFab Unity package. You might get prompted to import the TextMeshPro package. Please import it.
+1. **Import the dependencies.** Import the PlayFab Unity SDK, Photon PUN, Photon Voice, PhotonVR, the GCS Wardrobe System and the Meta XR All-in-One SDK. If you are prompted to import TextMeshPro, do so.
 
-2. Go to your PlayFab title and click on "Settings" and then "API Features":
-   ![](https://github.com/TMTimeVR/PlayFab-Login-System/blob/main/guide/enable%20settings.png?raw=true)
+2. **Add the scripts.** Place [`main/LoginPF.cs`](main/LoginPF.cs) in your project (e.g. `Assets/Scripts/`). The `creditsURL`, `motdURL`, `uURL`, `ltURL` and `woURL` fields near the top of the script point to placeholder URLs (`YOUR_USERNAME/YOUR_REPO`) — change them to your own remote text files, or remove the features that use them if you don't need a MOTD / credits / version gate.
 
-   Enable all of this:
+3. **Enable the PlayFab API features.** In the PlayFab Game Manager, open **Settings → API Features**:
 
-   ![](https://github.com/TMTimeVR/PlayFab-Login-System/blob/main/guide/APIFeatures.png?raw=true)
+   ![](guide/enable%20settings.png)
 
-4. At the top of your window, click "PlayFab" and then "MakePlayFabSharedSettings".
-   ![](https://github.com/TMTimeVR/PlayFab-Login-System/blob/main/guide/AddTitleID.png?raw=true)
+   Enable the options shown here:
 
-5. Follow the [GCS Wardrobe setup guide](https://github.com/TMTimeVR/PlayFab-Login-System/raw/refs/heads/main/guide/GCSWARDROBETUTORIAL.mp4) (Made by The Tech Wizard (I think)).
+   ![](guide/APIFeatures.png)
 
-6. Go to line 824 - 849 and follow ![MaxNiftyNine's tutorial](https://github.com/TMTimeVR/PlayFab-Login-System/raw/refs/heads/main/guide/How%20to%20add%20anticheat%20to%20your%20gorilla%20tag%20fan%20game%20(stop%20moddinghacking).mp4).
+4. **Set your Title ID.** In Unity, click **PlayFab → MakePlayFabSharedSettings** at the top of the window and enter your Title ID:
+
+   ![](guide/AddTitleID.png)
+
+5. **Upload the Cloud Script.** `LoginPF.cs` relies on server-side handlers (`VOI`, `GetPhotonAuth`, `AnnounceLogin`, `banPlayer`, `permBanPlayer`, and more). In the Game Manager, go to **Automation → Cloud Script**, paste the contents of [`main/cloudscripts.js`](main/cloudscripts.js) into a new revision, save it, and **deploy it as the live revision**.
+
+6. **Configure your secrets in Internal Title Data.** The Cloud Script reads every secret and endpoint from **server-only Internal Title Data** — never put these in client-readable Title Data or hard-code them in the scripts. In the Game Manager, open **Content → Title Data → Internal Title Data** and add the keys you need:
+
+   | Key | Purpose |
+   |-----|---------|
+   | `PUN` | Photon Realtime AppId (base64-encoded) |
+   | `VOICE` | Photon Voice AppId (base64-encoded) |
+   | `APP_ID` | Meta/Oculus application ID |
+   | `APP_SECRET` | Meta/Oculus application secret |
+   | `MODERATOR_IDS` | JSON array of moderator PlayFab IDs, e.g. `["ABC123","DEF456"]` |
+   | `WEBHOOK_BANS`, `WEBHOOK_VOICE`, `WEBHOOK_WARNINGS`, `WEBHOOK_REPORTS`, `WEBHOOK_LOGIN`, `WEBHOOK_LOBBY` | Notification endpoints (optional — handlers degrade gracefully if a key is unset) |
+   | `META_HASH`, `IL2CPP_HASH` | Expected build hashes for the optional binary-integrity check (optional) |
+
+7. **Set up the GCS Wardrobe.** Follow the [GCS Wardrobe setup guide](guide/GCSWARDROBETUTORIAL.mp4) (made by The Tech Wizard).
+
+8. **(Optional) Enable the APK signature check.** `LoginPF.cs` has an `EXPECTED_SIGNATURE_HASH` constant. While it is left at `0` the check is disabled and the game runs normally. To enable it, set it to your release keystore signature's `hashCode` (see [MaxNiftyNine's guide](guide/How%20to%20add%20anticheat%20to%20your%20gorilla%20tag%20fan%20game%20%28stop%20moddinghacking%29.mp4)). This is a client-side check and only a speed bump — it can be patched out of a decompiled APK, so never rely on it as your only protection.
+
+> **Security note:** This is client code and cannot be trusted. Keep all secrets in Internal Title Data, and enforce anything that matters — identity validation, currency/purchase grants, bans — inside Cloud Script, never on the client.
