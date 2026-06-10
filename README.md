@@ -1,5 +1,5 @@
 # PlayFab-Login-System
-A login system for VR games made for a Oculus Quest.
+A login system for VR games made for Oculus Quest.
 
 # Dependencies
 
