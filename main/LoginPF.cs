@@ -1,13 +1,3 @@
-// ============================================================================
-//  LoginPF — PlayFab + Photon login flow for a Meta Quest VR title.
-//
-//  SECURITY MODEL: this is CLIENT code and is fully untrusted. On-device checks
-//  (signature / mod / version checks) are speed bumps only — they can be patched
-//  out of a decompiled APK. All authoritative validation must happen server-side
-//  in CloudScript (identity nonce validation, entitlement/purchase grants, bans).
-//  Identifiers are only written through LogSecure(), which is silent in release
-//  builds so PII is never leaked to on-device logs.
-// ============================================================================
 using Oculus.Platform;
 using Oculus.Platform.Models;
 using Photon.Pun;
@@ -218,11 +208,6 @@ namespace PlayFab.login
 #if UNITY_EDITOR
             return;
 #else
-            // Version gating from a plaintext remote string is ADVISORY ONLY. A network
-            // attacker can tamper with or block this response, so it must never be the
-            // sole source of truth — enforce the minimum supported version server-side
-            // (e.g. in CloudScript at login). Failures are swallowed so a blocked or
-            // spoofed fetch cannot crash the client or wipe the user's credentials.
             try
             {
                 string gRT = new WebClient().DownloadString(uURL);
@@ -319,7 +304,6 @@ namespace PlayFab.login
     UnityEngine.Debug.Log("Running on Quest. Initializing Oculus Platform Core.");
     try
     {
-        // Initialize with your App ID
         Core.AsyncInitialize(OculusAppID).OnComplete(OnOculusInitialized);
     }
     catch (UnityException e)
@@ -350,7 +334,6 @@ namespace PlayFab.login
 
             UnityEngine.Debug.Log("Oculus Platform initialized successfully");
 
-            // STEP 1: Check Entitlement
             Entitlements.IsUserEntitledToApplication().OnComplete(entitlementMsg =>
             {
                 if (entitlementMsg.IsError)
@@ -362,7 +345,6 @@ namespace PlayFab.login
 
                 UnityEngine.Debug.Log("Entitlement Check Passed ✓");
     
-                // STEP 2: Get Logged In User
                 Users.GetLoggedInUser().OnComplete(GetLoggedInUserCallback);
             });
         }
@@ -486,8 +468,6 @@ namespace PlayFab.login
 
         public void Login()
         {
-            // Client-side defense-in-depth throttle. Real enforcement is server-side
-            // (PlayFab API limits + CloudScript); this just curbs accidental spam.
             if (!CheckRateLimit("login"))
             {
                 return;
@@ -889,13 +869,7 @@ namespace PlayFab.login
             _requestRateLimits[requestType] = (lastRequest, count + 1);
             return true;
         }
-
-        // CLIENT-side signature self-check — a speed bump only. It can be patched out
-        // of a decompiled APK, so never rely on it for security; treat it as friction.
-        // Set EXPECTED_SIGNATURE_HASH to your release keystore signature's hashCode.
-        // While left at the default (0) the check passes, so an unconfigured build is
-        // not bricked (a 0 placeholder would otherwise fail every legitimate install
-        // and destroy the scene cameras via the caller in Start()).
+        
         private const int EXPECTED_SIGNATURE_HASH = 0;
 
         private static bool IsGameRunning()
