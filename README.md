@@ -57,4 +57,4 @@ The APK hash verification code snippet (line 901 - 930) was made by ![MaxNiftyNi
 
 8. **(Optional) Enable the APK signature check.** `LoginPF.cs` has an `EXPECTED_SIGNATURE_HASH` constant. While it is left at `0` the check is disabled and the game runs normally. To enable it, set it to your release keystore signature's `hashCode` (see [MaxNiftyNine's guide](guide/How%20to%20add%20anticheat%20to%20your%20gorilla%20tag%20fan%20game%20%28stop%20moddinghacking%29.mp4)). This is a client-side check and only a speed bump — it can be patched out of a decompiled APK, so never rely on it as your only protection.
 
-> **Security note:** This is client code and cannot be trusted. Keep all secrets in Internal Title Data, and enforce anything that matters — identity validation, currency/purchase grants, bans — inside Cloud Script, never on the client.
+> **Security note:** This is client code and cannot be trusted. Keep all secrets in Internal Title Data, and enforce anything that matters: identity validation, currency/purchase grants, and bans inside Cloud Script, never on the client.
