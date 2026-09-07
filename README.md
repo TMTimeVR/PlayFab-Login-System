@@ -1,6 +1,9 @@
 # PlayFab-Login-System
 A login system for VR games made for Oculus Quest.
 
+# Notice
+I found some security vulns in this code. A fix will arrive on the 08/09/2026. I might make a report putting into details what the problems were.
+
 # Dependencies
 
 - [The PlayFab Unity SDK](https://github.com/PlayFab/UnitySDK) [(Download)](https://aka.ms/PlayFabUnitySdk)
