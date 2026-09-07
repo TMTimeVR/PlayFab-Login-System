@@ -23,6 +23,8 @@ I also used [some random PlayFab login script from 2023](https://github.com/TMTi
 
 The APK hash verification code snippet (line 901 - 930) was made by ![MaxNiftyNine](https://github.com/MaxNiftyNine). ![This guide was used](https://github.com/TMTimeVR/PlayFab-Login-System/raw/refs/heads/main/guide/How%20to%20add%20anticheat%20to%20your%20gorilla%20tag%20fan%20game%20(stop%20moddinghacking).mp4).
 
+This doesn't mean, that this is just a combination of code snippets, a big part of the code was made by me.
+
 # Setup:
 
 1. **Import the dependencies.** Import the PlayFab Unity SDK, Photon PUN, Photon Voice, PhotonVR, the GCS Wardrobe System and the Meta XR All-in-One SDK. If you are prompted to import TextMeshPro, do so.
