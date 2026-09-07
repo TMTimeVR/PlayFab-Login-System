@@ -14,6 +14,8 @@ A login system for VR games made for Oculus Quest.
 **Yes, AI (Claude) was used in this system. Claude was used as a second pair of eyes, not just something that generates code that I instantly put into this system.**
 This is (probably) a safe and secure backend. I dunno, don't take my word on it. This is an older version of the backend in [Monkey Mall](https://www.meta.com/en-gb/experiences/chimpstitute/6878051502218331/).
 
+This isn't enterprise-ready. Use this for your hobby project, or to just inspire yourself.
+
 # Credits:
 
 I used large code snippets of SolarisDev09's [AdvancedPlayFab](https://github.com/SolarisDev09/AdvancedPlayfab?tab=readme-ov-file) and JokerJosh0's [EasyPlayFab](https://github.com/JokerJosh0/EasyPlayfab).
