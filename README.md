@@ -62,3 +62,6 @@ This doesn't mean, that this is just a combination of code snippets, a big part 
 8. **(Optional) Enable the APK signature check.** `LoginPF.cs` has an `EXPECTED_SIGNATURE_HASH` constant. While it is left at `0` the check is disabled and the game runs normally. To enable it, set it to your release keystore signature's `hashCode` (see [MaxNiftyNine's guide](guide/How%20to%20add%20anticheat%20to%20your%20gorilla%20tag%20fan%20game%20%28stop%20moddinghacking%29.mp4)). This is a client-side check and only a speed bump — it can be patched out of a decompiled APK, so never rely on it as your only protection.
 
 > **Security note:** This is client code and cannot be trusted. Keep all secrets in Internal Title Data, and enforce anything that matters: identity validation, currency/purchase grants, and bans inside Cloud Script, never on the client.
+
+# Should I use this for my hobby project?
+For a hobby project, I’d consider using this as a starting point, but I would not blindly drop it into a game and assume the authentication/security is solved.
