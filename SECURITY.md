@@ -1,5 +1,10 @@
 # Security Policy
 ## Reporting a Vulnerability
 
-Contact me at contact@tmtime.dev or at "tmtimevr" on Discord if there is a vulnerability in this repo.
-If there is a vulnerability with any of the dependencies, contact the authors of those dependencies.
+Contact: mailto:contact@tmtime.dev
+Policy: https://tmtime.dev/security/policy
+Acknowledgments: https://tmtime.dev/security/acknowledgments.txt
+Preferred-Languages: en
+Canonical: https://tmtime.dev/.well-known/security.txt
+Expires: 2030-01-01T00:00:00Z
+-# tmtime.dev/.well-known/security.txt
