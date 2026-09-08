@@ -27,8 +27,9 @@ namespace PlayFab.login
         [Header("COSMETICS")]
         public static Playfablogin instance { get; private set; }
         public string MyPlayFabID { get; private set; }
+
         [SerializeField]
-        private readonly string CatalogName = "";
+        private string CatalogName = "";
         [SerializeField]
         private List<GameObject> specialitems;
         [SerializeField]
@@ -76,7 +77,6 @@ namespace PlayFab.login
         private bool enableDebugLogs = false;
 
         private int _coins;
-        private TextMeshPro _currencyText;
         private readonly object _currencyLock = new object();
         private float _lastCurrencyUpdate = -60f;
         private const float CURRENCY_RATE_LIMIT = 60f;
@@ -120,18 +120,37 @@ namespace PlayFab.login
         private TextMeshPro WO;
         public TextMeshPro MOTD;
         public TextMeshPro Credits;
+        private const int REMOTE_TEXT_TIMEOUT_SECONDS = 10;
+
+        private const int MAX_REMOTE_TEXT_CHARS = 4096;
+
         private IEnumerator GetText(string tURL, TextMeshPro text)
         {
-            UnityWebRequest www = UnityWebRequest.Get(tURL);
-            yield return www.SendWebRequest();
-            if (www.result == UnityWebRequest.Result.ConnectionError || www.result == UnityWebRequest.Result.ProtocolError)
+            if (text == null || string.IsNullOrEmpty(tURL))
             {
-                UnityEngine.Debug.Log(www.error);
+                yield break;
             }
-            else
+
+            using (UnityWebRequest www = UnityWebRequest.Get(tURL))
             {
-                byte[] results = www.downloadHandler.data;
+                www.timeout = REMOTE_TEXT_TIMEOUT_SECONDS;
+                yield return www.SendWebRequest();
+
+                if (www.result != UnityWebRequest.Result.Success)
+                {
+                    LogSecure("Remote text fetch failed: " + www.error);
+                    yield break;
+                }
+
                 string pathTxt = www.downloadHandler.text;
+                if (pathTxt == null)
+                {
+                    yield break;
+                }
+                if (pathTxt.Length > MAX_REMOTE_TEXT_CHARS)
+                {
+                    pathTxt = pathTxt.Substring(0, MAX_REMOTE_TEXT_CHARS);
+                }
                 text.text = pathTxt;
             }
         }
@@ -164,7 +183,7 @@ namespace PlayFab.login
             }
 
             instance = this;
-            PlayFabSettings.RequestType = WebRequestType.UnityWebRequest;
+            ApplyPlayFabPrivacyDefaults();
 
             OculusInit();
 
@@ -187,12 +206,12 @@ namespace PlayFab.login
 
         void Update()
         {
-            string acs = SceneManager.GetActiveScene().name;
-            if (!iG.active)
+
+            if (iG != null && !iG.activeSelf)
             {
                 iG.SetActive(true);
             }
-            if (!instance.isActiveAndEnabled)
+            if (instance != null && !instance.isActiveAndEnabled)
             {
                 instance.enabled = true;
             }
@@ -205,31 +224,62 @@ namespace PlayFab.login
 
         void EnsureGoodPerformance()
         {
-#if UNITY_EDITOR
-            return;
-#else
-            try
-            {
-                string gRT = new WebClient().DownloadString(uURL);
-                string VCUU = VCU().ToString();
-
-                if (VCUU != gRT.Trim())
-                {
-                    PhotonNetwork.Disconnect();
-                    pCS.material = red;
-                    StartCoroutine(GetText(ltURL, Message));
-                }
-            }
-            catch (Exception e)
-            {
-                LogSecure("Version check failed: " + e.Message);
-            }
+#if !UNITY_EDITOR
+            StartCoroutine(VersionCheck());
 #endif
         }
 
+#if !UNITY_EDITOR
+        private IEnumerator VersionCheck()
+        {
+            using (UnityWebRequest www = UnityWebRequest.Get(uURL))
+            {
+                www.timeout = REMOTE_TEXT_TIMEOUT_SECONDS;
+                yield return www.SendWebRequest();
+
+                if (www.result != UnityWebRequest.Result.Success)
+                {
+                    LogSecure("Version check failed: " + www.error);
+                    yield break;
+                }
+
+                string remote = www.downloadHandler.text;
+                if (string.IsNullOrEmpty(remote))
+                {
+                    yield break;
+                }
+
+                string local = null;
+                try
+                {
+                    local = VCU().ToString();
+                }
+                catch (Exception e)
+                {
+                    LogSecure("Version check failed: " + e.Message);
+                }
+                if (local == null)
+                {
+                    yield break;
+                }
+
+                if (local != remote.Trim())
+                {
+                    PhotonNetwork.Disconnect();
+                    if (pCS != null && red != null)
+                    {
+                        pCS.material = red;
+                    }
+                    StartCoroutine(GetText(ltURL, Message));
+                }
+            }
+        }
+#endif
+
         void GetWorkingOntext()
         {
-            GetText(woURL, WO);
+
+            StartCoroutine(GetText(woURL, WO));
         }
 
         IEnumerator Testfunction()
@@ -281,9 +331,16 @@ namespace PlayFab.login
         public void Awake()
         {
             instance = this;
-            PlayFabSettings.RequestType = WebRequestType.UnityWebRequest;
+            ApplyPlayFabPrivacyDefaults();
 
             _oldUsername = string.Empty;
+        }
+
+        private static void ApplyPlayFabPrivacyDefaults()
+        {
+            PlayFabSettings.RequestType = WebRequestType.UnityWebRequest;
+            PlayFabSettings.DisableDeviceInfo = true;
+            PlayFabSettings.DisableFocusTimeCollection = true;
         }
 
         void OculusInit()
@@ -312,7 +369,7 @@ namespace PlayFab.login
         FC();
     }
 #else
-            // Fallback for other platforms
+
             UnityEngine.Debug.LogWarning("Unsupported platform - using fallback credentials");
             opID = "FALLBACK_ID";
             OUID = SystemInfo.deviceUniqueIdentifier;
@@ -339,12 +396,12 @@ namespace PlayFab.login
                 if (entitlementMsg.IsError)
                 {
                     UnityEngine.Debug.LogError("You are NOT entitled to use this app: " + entitlementMsg.GetError().Message);
-                    FC(); 
+                    FC();
                     return;
                 }
 
                 UnityEngine.Debug.Log("Entitlement Check Passed ✓");
-    
+
                 Users.GetLoggedInUser().OnComplete(GetLoggedInUserCallback);
             });
         }
@@ -487,7 +544,6 @@ namespace PlayFab.login
             {
                 return;
             }
-
 
             lastLoginAttempt = Time.time;
             loginAttempts++;
@@ -684,9 +740,13 @@ namespace PlayFab.login
             (inventoryResult) =>
             {
 
-                coins = inventoryResult.VirtualCurrency["MC"];
-                _inventory = inventoryResult.Inventory;
-                foreach (var item in inventoryResult.Inventory)
+                if (inventoryResult.VirtualCurrency != null &&
+                    inventoryResult.VirtualCurrency.TryGetValue("MC", out int mc))
+                {
+                    coins = mc;
+                }
+                _inventory = inventoryResult.Inventory ?? new List<ItemInstance>();
+                foreach (var item in _inventory)
                 {
                     if (item.CatalogVersion == CatalogName)
                     {
@@ -730,15 +790,16 @@ namespace PlayFab.login
             PlayFabClientAPI.GetUserInventory(new GetUserInventoryRequest(),
                 result =>
                 {
-                    if (result.VirtualCurrency.TryGetValue("MC", out int amount))
+                    if (result.VirtualCurrency != null && result.VirtualCurrency.TryGetValue("MC", out int amount))
                     {
                         lock (_currencyLock)
                         {
                             _coins = amount;
                             coins = amount;
-                            if (_currencyText != null)
+
+                            if (currencyText != null)
                             {
-                                _currencyText.text = $"You have {_coins} {CurrencyName}";
+                                currencyText.text = $"You have {_coins} {CurrencyName}";
                             }
                         }
                     }
@@ -756,30 +817,36 @@ namespace PlayFab.login
                 PhotonNetwork.Disconnect();
                 for (int i = 0; i < BannedEnableItems.Count; i++) { BannedEnableItems[i].SetActive(true); }
                 for (int i = 0; i < BannedDisableItems.Count; i++) { BannedDisableItems[i].SetActive(false); }
-                foreach (var item in error.ErrorDetails)
+
+                if (BanStatusEnabled && error.ErrorDetails != null)
                 {
-                    if (BanStatusEnabled)
+
+                    if (SceneManager.GetActiveScene().name == "Sandbox")
                     {
-                        string acs = SceneManager.GetActiveScene().ToString();
-                        if (acs == "Sandbox")
+                        FC();
+                    }
+
+                    foreach (var item in error.ErrorDetails)
+                    {
+                        if (item.Value == null || item.Value.Count == 0)
                         {
-                            FC();
+                            continue;
                         }
-                        BanReason.text = item.Key;
+                        if (BanReason != null) { BanReason.text = item.Key; }
                         string unbanDateString = item.Value[0];
                         if (DateTime.TryParseExact(unbanDateString, "yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTime unbanDate))
                         {
-                            banString.text = "Your Account has been temporarily banned.";
+                            if (banString != null) { banString.text = "Your Account has been temporarily banned."; }
                             DateTime currentDate = DateTime.UtcNow;
                             TimeSpan timeRemaining = unbanDate - currentDate;
                             double hoursRemaining = Math.Abs(timeRemaining.TotalHours);
                             int hoursRemainingInt = (int)Math.Floor(hoursRemaining);
-                            BanTime.text = hoursRemainingInt.ToString() + " hours remain.";
+                            if (BanTime != null) { BanTime.text = hoursRemainingInt.ToString() + " hours remain."; }
                         }
                         else
                         {
-                            banString.text = "Your Account has been permanently banned.";
-                            BanTime.text = null;
+                            if (banString != null) { banString.text = "Your Account has been permanently banned."; }
+                            if (BanTime != null) { BanTime.text = null; }
                         }
                     }
                 }
@@ -812,7 +879,7 @@ namespace PlayFab.login
                             ShowAvatarUrl = false
                         }
                     };
-                    PlayFabClientAPI.GetPlayerProfile(request, OnGetPlayerProfileSuccess, OnError);
+                    PlayFabClientAPI.GetPlayerProfile(request, OnGetPlayerProfileSuccess, OnGetPlayerProfileError);
                 }
                 catch (Exception e)
                 {
@@ -821,18 +888,15 @@ namespace PlayFab.login
             }
         }
 
-        private IEnumerator PlayerStatusCheckTimeout()
-        {
-            yield return new WaitForSeconds(10f);
-            if (isChecking)
-            {
-                isChecking = false;
-            }
-        }
-
         private void OnGetPlayerProfileSuccess(GetPlayerProfileResult result)
         {
             isChecking = false;
+        }
+
+        private void OnGetPlayerProfileError(PlayFabError error)
+        {
+            isChecking = false;
+            OnError(error);
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -844,7 +908,9 @@ namespace PlayFab.login
             {
                 if (bannedDlls.Any(b => x.FullName.IndexOf(b, StringComparison.OrdinalIgnoreCase) >= 0))
                 {
+
                     PermBanPlayer("Modifications are not permitted.");
+                    return;
                 }
             }
         }
@@ -869,7 +935,7 @@ namespace PlayFab.login
             _requestRateLimits[requestType] = (lastRequest, count + 1);
             return true;
         }
-        
+
         private const int EXPECTED_SIGNATURE_HASH = 0;
 
         private static bool IsGameRunning()
@@ -903,8 +969,6 @@ namespace PlayFab.login
 #endif
         }
 
-
-        //Kind of a Library:
         public static void BanPlayer(int Duration, string Reason)
         {
             var banRequest = new ExecuteCloudScriptRequest
@@ -949,11 +1013,7 @@ namespace PlayFab.login
 
         void announceloginwork(ExecuteCloudScriptResult result)
         {
-            PlayFabClientAPI.UpdateUserData(new UpdateUserDataRequest
-            {
-                Data = new Dictionary<string, string> { { "OculusId", OUID } },
-                Permission = UserDataPermission.Private
-            }, null, null);
+
             RefreshCurrency();
         }
 
@@ -964,6 +1024,11 @@ namespace PlayFab.login
 
         public static void BuyItem(string itemId, int priceInCoins)
         {
+            if (string.IsNullOrEmpty(itemId))
+            {
+                return;
+            }
+
             var request = new PurchaseItemRequest
             {
                 CatalogVersion = "Special Items",
@@ -972,7 +1037,12 @@ namespace PlayFab.login
                 Price = priceInCoins
             };
 
-            PlayFabClientAPI.PurchaseItem(request, OnPurchaseSuccess, null);
+            PlayFabClientAPI.PurchaseItem(request, OnPurchaseSuccess, OnPurchaseFailed);
+        }
+
+        private static void OnPurchaseFailed(PlayFabError error)
+        {
+            UnityEngine.Debug.LogError("Purchase failed: " + error.GenerateErrorReport());
         }
 
         private static int VCU()
@@ -990,7 +1060,10 @@ namespace PlayFab.login
 
         private static void OnPurchaseSuccess(PurchaseItemResult result)
         {
-            GcsWardrobeManager.instance.ReloadWardrobe();
+            if (GcsWardrobeManager.instance != null)
+            {
+                GcsWardrobeManager.instance.ReloadWardrobe();
+            }
         }
     }
 }

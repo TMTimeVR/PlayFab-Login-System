@@ -1,3 +1,7 @@
+// Archived reference, kept because the README credits it. Disabled: it authenticates
+// on the device id alone and checks bans client-side. See reports/security-review.md.
+#if PLAYFAB_ARCHIVED_2023_LOGIN
+
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -146,3 +150,5 @@ public class Playfablogin : MonoBehaviour
 
 
 }
+
+#endif // PLAYFAB_ARCHIVED_2023_LOGIN
