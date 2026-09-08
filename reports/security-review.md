@@ -1,4 +1,4 @@
-# Security review, September 2026
+# Security review, 8th September 2026
 
 A full review of this login system and the five dependencies it pulls from GitHub.
 Everything described under "Fixed" is already fixed in this repository. I have written
