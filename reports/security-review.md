@@ -10,7 +10,7 @@ Scope: `main/LoginPF.cs`, `main/cloudscripts.js`, and the PlayFab Unity SDK, Pho
 
 | | Count |
 |---|---|
-| Fixed here | 21 |
+| Fixed here | 21, plus 8 across two later passes |
 | Outstanding in dependencies | 6 |
 | Secrets found in any repository | 0 |
 
@@ -227,29 +227,120 @@ anyone, grant anything and read all data. If you followed that advice, rotate th
 The CloudScript changes are not backward compatible in one direction. The Photon gate
 denies sessions that have not been verified, so order matters.
 
-1. Add `ALLOW_UNVERIFIED_PHOTON = "true"` to Internal Title Data **before** deploying the
-   new revision. Unity Editor sessions have no real Oculus nonce, and this keeps them and
-   any in flight old clients working while you test.
+1. Set `ALLOW_UNVERIFIED_PHOTON` in Internal Title Data to an expiry timestamp a few
+   days out, for example `2026-10-01T00:00:00Z`, **before** deploying the new revision.
+   Unity Editor sessions have no real Oculus nonce, and this keeps them and any in
+   flight old clients working while you test. It is a timestamp, not `"true"`; the
+   boolean form was retired in the second pass because it was too easy to leave on.
 2. Deploy the new CloudScript revision and make it live.
-3. Ship the updated `LoginPF.cs`. Existing players re-bind on their next login, because
+3. Create the scheduled task for `PerformDeletionChecks` (see the README). Without it,
+   account deletion requests are recorded but never carried out.
+4. Ship the updated `LoginPF.cs`. Existing players re-bind on their next login, because
    `VOI` adopts the Oculus ID it just validated. Nobody is locked out.
-4. **Remove `ALLOW_UNVERIFIED_PHOTON`** once real headsets are verifying. Leaving it set
-   disables the gate for everyone and undoes the main fix.
-5. Watch the bans webhook for a day. Spoofing alerts are throttled to one per player per
-   five minutes, so a burst now means something real.
+5. Let `ALLOW_UNVERIFIED_PHOTON` expire once real headsets are verifying, or remove it.
+   Every use while it is active is logged as a warning, so a busy log after the rollout
+   means it is still doing work it should not be.
+6. Watch the bans webhook for a day. Spoofing alerts are throttled to one per player per
+   five minutes and every webhook to thirty a minute title-wide, so a burst now means
+   something real.
 
 ---
 
-## Still open by design
+## Second pass, after an external audit
 
-Login still uses `LoginWithCustomID` with the org scoped Oculus ID as the credential.
-Anyone who learns another player's OUID can get a session for that account. The
-verification gate limits what an unverified session can do, no Photon AppIds and no
-entitlement grants, but it does not stop the ticket being issued.
+A second audit, done separately and grounded in twelve real Frida mod menus for this
+family of games, went through this repository after the review above. It found one
+thing I had got badly wrong, and I want to be plain about it.
 
-Closing that properly means moving to a login method where Meta's proof mints the session
-instead of being checked afterwards. That is a bigger change than a security pass should
-make on its own, so it is still open. Worth planning if this stops being a hobby project.
+The section that used to be here said the verification gate "limits what an
+unverified session can do, no Photon AppIds and no entitlement grants." That was
+true and it was the wrong thing to say, because it left out what an unverified session
+*could* still do. The gate covered the handlers that give things. It did not cover
+the ones that take them away. A session minted from a harvested Oculus ID could not
+verify as the victim, but it could call `permBanPlayer`, `banPlayer`, `ACB` and
+`RequestAccountDeletion`, all of which act on `currentPlayerId`, which was now the
+victim. So a leaked ID was not "a session for that account." It was the victim banned
+and, after 48 hours, deleted. I gated the wrong half.
+
+What that pass fixed:
+
+**The destructive handlers are gated.** `ACB`, `banPlayer`, `permBanPlayer`,
+`RequestAccountDeletion` and `SendVoiceToDiscord` now refuse a session that has not
+passed `VOI`. Same helper, same check, same reason the Photon gate works: the
+consequence lives on the server.
+
+**`DeleteUser` is no longer client-callable.** `PerformDeletionChecks` refuses to run
+unless `context.triggeredByTask` is set, which only a PlayFab scheduled task provides.
+Before, the actual deletion was one client call away from anyone holding the ticket.
+It now needs a scheduled task to exist at all, which the README explains.
+
+**The dev bypass expires.** `ALLOW_UNVERIFIED_PHOTON` was a boolean that was easy to
+leave on, and while it was on the gate was off for everyone. It is now an ISO
+timestamp; the flag is honoured only while that time is in the future, and every use
+is logged. The old `"true"` does nothing.
+
+**Webhooks have a title-wide ceiling.** Every rate limit was per account, and accounts
+are free to make. One account, one post; N accounts, N posts; every post billed
+against the CloudScript HTTP budget. A title-global bucket in Internal Title Data now
+caps each webhook at thirty posts a minute regardless of how many accounts are
+rotated through it.
+
+**Entitlement proofs cannot be replayed.** The IAP handlers trusted Oculus's consume
+call to be strictly one-shot and kept no record of their own. They now store the last
+fifty consumed proofs per player in Internal Data and refuse a repeat before it ever
+reaches Oculus.
+
+**A banned account cannot get the Photon AppIds, and nor can an out-of-date client.**
+A third report, this one a static teardown of a shipped APK, pointed out that ban
+enforcement was "enable and disable objects on the banned client", which a modded
+client ignores. The ban state came from PlayFab, so the source of truth was right and
+only the enforcement was in the wrong place. `GetPhotonAuth` now checks
+`server.GetUserBans` and a `MIN_CLIENT_VERSION` from title data before returning
+anything. Two limits worth stating: it bites on the next connect, so a player banned
+mid-session plays on until they reconnect, and the version comes from the client so a
+modded build can lie about it. The ban lookup fails open on a PlayFab error, because
+locking out the whole title during an outage is worse than one banned player
+reconnecting.
+
+**Moderator bans are audited, and reports are defanged.** A moderator ban posted
+nothing to the bans webhook, so a compromised moderator account was game-wide ban
+capability with no forensic trail. It posts actor, target and reason now. Report
+fields are wrapped in code spans so a forged report cannot carry masked links, and the
+reported identity is labelled as client-supplied so a moderator does not mistake it
+for a verified one.
+
+---
+
+## Still open
+
+Everything under [What is still open](../README.md#what-is-still-open) in the README,
+which is the honest list. The ones that matter most:
+
+**A leaked Oculus ID still yields a session.** The gate now stops that session doing
+anything destructive, reaching multiplayer, or spending. It cannot stop the ticket
+being issued. The fix is minting the PlayFab session from Meta's proof rather than
+checking it afterward, which is an architecture change and has not been made.
+
+**One headset, unlimited accounts.** The binding stops a second Oculus user claiming
+an account. It does not stop one Oculus user making many. A banned player creates a
+fresh account, verifies it with the same real headset, and is back in. Until the
+binding is bidirectional, a ban is friction. That needs a reverse index the current
+CloudScript does not have a clean primitive for, so it is a design decision rather
+than a patch.
+
+**Client-side anti-cheat is telemetry.** `HasMods`, `VerifyBinaryIntegrity` and the
+signature check all run on the client, and the mod menus inject natively after login,
+so none of them see anything. Treat them as signals. The signature check ships
+disabled.
+
+**Mid-session enforcement is client-side.** A banned player is only removed from a
+room because their own client polls for the ban and disconnects. A modded client does
+not. That needs a Photon webhook.
+
+**The Photon UserId is the PlayFab ID**, which is stable, which makes every player
+trackable through Photon's `FindFriends`. The fix belongs in `LoginPF.cs` where the
+Photon auth parameters are set, and it interacts with everything that needs a stable
+Photon identity, so it has not been made yet.
 
 ---
 
@@ -257,7 +348,7 @@ make on its own, so it is still open. Worth planning if this stops being a hobby
 
 Findings were verified by running things, not by reading.
 
-The CloudScript has 43 assertions against a mock PlayFab sandbox covering identity
+The CloudScript has 85 assertions against a mock PlayFab sandbox covering identity
 binding, the Photon gate, the moderator paths, SKU handling and input validation. Run
 against the pre-fix revision, 22 fail. Against the current one, all pass. The pre-fix run
 prints the app secret sitting in a URL, hands Photon AppIds to an unverified session, and

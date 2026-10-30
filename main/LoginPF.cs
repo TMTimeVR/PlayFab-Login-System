@@ -652,7 +652,8 @@ namespace PlayFab.login
 
                 var request = new ExecuteCloudScriptRequest
                 {
-                    FunctionName = "GetPhotonAuth"
+                    FunctionName = "GetPhotonAuth",
+                    FunctionParameter = new { version = UnityEngine.Application.version }
                 };
                 PlayFabClientAPI.ExecuteCloudScript(request, authed, FailedToAuthenticate);
             }

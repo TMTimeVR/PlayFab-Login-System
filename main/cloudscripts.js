@@ -1,5 +1,6 @@
 handlers.GetPhotonAuth = function (args, context) {
-    var cfg = getInternalConfig(["PUN", "VOICE", "ALLOW_UNVERIFIED_PHOTON"]);
+    args = args || {};
+    var cfg = getInternalConfig(["PUN", "VOICE", "ALLOW_UNVERIFIED_PHOTON", "MIN_CLIENT_VERSION"]);
     var pun = cfg["PUN"];
     var voice = cfg["VOICE"];
 
@@ -7,10 +8,22 @@ handlers.GetPhotonAuth = function (args, context) {
         return { error: "Authentication credentials not found" };
     }
 
-    var devBypass = (cfg["ALLOW_UNVERIFIED_PHOTON"] === "true");
-    if (!devBypass && !isIdentityVerified(currentPlayerId, IDENTITY_MAX_AGE_SECONDS)) {
-        log.error("GetPhotonAuth denied: identity not verified. Player: " + currentPlayerId);
-        return { error: "Identity not verified" };
+    if (!isIdentityVerified(currentPlayerId, IDENTITY_MAX_AGE_SECONDS)) {
+        if (!devBypassActive(cfg["ALLOW_UNVERIFIED_PHOTON"])) {
+            log.error("GetPhotonAuth denied: identity not verified. Player: " + currentPlayerId);
+            return { error: "Identity not verified" };
+        }
+        log.warning("ALLOW_UNVERIFIED_PHOTON is active: handing Photon AppIds to an unverified session. Player: " + currentPlayerId);
+    }
+
+    if (isBanned(currentPlayerId)) {
+        log.error("GetPhotonAuth denied: account banned. Player: " + currentPlayerId);
+        return { error: "Account banned" };
+    }
+
+    if (!versionAllowed(args.version, cfg["MIN_CLIENT_VERSION"])) {
+        log.warning("GetPhotonAuth denied: client out of date. Player: " + currentPlayerId);
+        return { error: "Client out of date" };
     }
 
     return { PUN: pun, VOICE: voice };
@@ -63,9 +76,16 @@ handlers.VerifyBinaryIntegrity = function (args, context) {
 
 handlers.SendVoiceToDiscord = function (args) {
     args = args || {};
+    var denied = requireVerified("SendVoiceToDiscord");
+    if (denied) return { success: false, error: denied.error };
+
     var webhookUrl = getConfigValue("WEBHOOK_VOICE");
     if (!webhookUrl) {
         return { success: false, error: "Voice reporting not configured." };
+    }
+
+    if (titleRateLimited("voice", 10)) {
+        return { success: false, error: "rate_limited" };
     }
 
     var userData = server.GetUserReadOnlyData({
@@ -156,6 +176,9 @@ handlers.SendVoiceToDiscord = function (args) {
 };
 
 handlers.ACB = function (args, context) {
+    var denied = requireVerified("ACB");
+    if (denied) return denied;
+
     server.BanUsers({
         Bans: [{
             PlayFabId: currentPlayerId,
@@ -218,6 +241,9 @@ handlers.VOI = function (args, context) {
 };
 
 handlers.RequestAccountDeletion = function (args, context) {
+    var denied = requireVerified("RequestAccountDeletion");
+    if (denied) return denied;
+
     server.UpdateUserReadOnlyData({
         PlayFabId: currentPlayerId,
         Data: {
@@ -248,6 +274,11 @@ handlers.CheckAndCancelDeletion = function (args, context) {
 };
 
 handlers.PerformDeletionChecks = function (args, context) {
+    if (!context || !context.triggeredByTask) {
+        log.error("PerformDeletionChecks called outside a scheduled task. Player: " + currentPlayerId);
+        return { deleted: false, error: "Not callable by the client." };
+    }
+
     var userData = server.GetUserReadOnlyData({ PlayFabId: currentPlayerId }).Data || {};
     var pending = userData["pendingDeletion"];
     var timeRequested = userData["deletionRequestedAt"];
@@ -305,6 +336,12 @@ handlers.ReportPlayer = function (Args, Context) {
         }
 
         server.BanUsers({ Bans: [ban] });
+
+        postWebhook("WEBHOOK_BANS", {
+            content: "Moderator " + code(currentPlayerId) + " banned " + code(targetId) +
+                     (ban.DurationInHours ? " for " + ban.DurationInHours + "h" : " permanently") +
+                     ". Reason: " + code(reason)
+        });
         return { Result: "Banned Player" };
     }
 
@@ -314,10 +351,10 @@ handlers.ReportPlayer = function (Args, Context) {
         title: "Player Report",
         color: 16711680,
         fields: [
-            { name: "**Reported**", value: sanitize(Args.TargetId) + "\n" + sanitize(Args.TargetName) + "\n#" + sanitize(Args.TargetColor), inline: true },
-            { name: "**Reporter**", value: currentPlayerId + "\n" + sanitize(Args.ReporterName) + "\n#" + sanitize(Args.ReporterColor), inline: true },
-            { name: "**Details**", value: "Room: " + sanitize(Args.Room) + "\nReason: " + sanitize(Args.Reason) },
-            { name: "**IsModerator**", value: String(moderator) }
+            { name: "Reported (client-supplied, unverified)", value: code(Args.TargetId) + "\n" + code(Args.TargetName) + "\n#" + code(Args.TargetColor), inline: true },
+            { name: "Reporter (verified id)", value: code(currentPlayerId) + "\n" + code(getDisplayName(currentPlayerId)), inline: true },
+            { name: "Details", value: "Room: " + code(Args.Room) + "\nReason: " + code(Args.Reason) },
+            { name: "IsModerator", value: String(moderator) }
         ]
     };
 
@@ -379,8 +416,15 @@ handlers.CompleteIAPPurchase = function (args, context) {
     var oc = oculusConfig();
     if (!oc) { log.error("Oculus credentials not configured."); return false; }
 
+    if (proofAlreadyConsumed(args.Sku, args.UserProof)) {
+        log.error("Replayed entitlement proof. Player: " + currentPlayerId + " SKU: " + sanitize(args.Sku));
+        return false;
+    }
+
     var parsed = consumeEntitlement(oc, args.MetaId, args.UserProof, args.Sku);
-    return parsed !== null && parsed.success === true;
+    var ok = parsed !== null && parsed.success === true;
+    if (ok) recordConsumedProof(args.Sku, args.UserProof);
+    return ok;
 };
 
 handlers.GrantOculusCurrency = function (args, context) {
@@ -404,11 +448,18 @@ handlers.GrantOculusCurrency = function (args, context) {
     var oc = oculusConfig();
     if (!oc) { log.error("Oculus credentials not configured."); return { success: false, error: "Verification failed." }; }
 
+    if (proofAlreadyConsumed(args.Sku, args.UserProof)) {
+        log.error("Replayed entitlement proof. Player: " + currentPlayerId + " SKU: " + sanitize(args.Sku));
+        return { success: false, error: "Purchase already redeemed." };
+    }
+
     var consumeResponse = consumeEntitlement(oc, args.MetaId, args.UserProof, args.Sku);
     if (consumeResponse === null || !consumeResponse.success) {
         log.error("Entitlement consume failed. Player: " + currentPlayerId + " SKU: " + sanitize(args.Sku));
         return { success: false, error: "Purchase could not be verified." };
     }
+
+    recordConsumedProof(args.Sku, args.UserProof);
 
     var result = server.AddUserVirtualCurrency({
         PlayFabId: currentPlayerId,
@@ -420,6 +471,9 @@ handlers.GrantOculusCurrency = function (args, context) {
 
 handlers.banPlayer = function (args, context) {
     args = args || {};
+    var denied = requireVerified("banPlayer");
+    if (denied) return denied;
+
     var hours = (typeof args.duration === "number" && args.duration > 0) ? args.duration : 24;
     return server.BanUsers({
         Bans: [{
@@ -432,6 +486,9 @@ handlers.banPlayer = function (args, context) {
 
 handlers.permBanPlayer = function (args, context) {
     args = args || {};
+    var denied = requireVerified("permBanPlayer");
+    if (denied) return denied;
+
     var result = server.BanUsers({
         Bans: [{ PlayFabId: currentPlayerId, Reason: sanitize(args.reason) }]
     });
@@ -569,10 +626,125 @@ function postWebhook(configKey, payload) {
         log.error("Webhook not configured: " + configKey);
         return null;
     }
+    if (titleRateLimited("webhook:" + configKey, WEBHOOK_TITLE_LIMIT_PER_MINUTE)) {
+        log.warning("Title-wide webhook ceiling hit for " + configKey);
+        return null;
+    }
     if (payload && !payload.allowed_mentions) {
         payload.allowed_mentions = { parse: [] };
     }
     return http.request(url, "post", JSON.stringify(payload), "application/json", {});
+}
+
+var WEBHOOK_TITLE_LIMIT_PER_MINUTE = 30;
+var CONSUMED_PROOFS_KEPT = 50;
+
+function consumedProofKey(sku, proof) {
+    return sku + ":" + proof;
+}
+
+function readConsumedProofs() {
+    var res = server.GetUserInternalData({ PlayFabId: currentPlayerId, Keys: ["ConsumedProofs"] });
+    var data = (res && res.Data) ? res.Data : {};
+    if (!data["ConsumedProofs"]) return [];
+    try {
+        var list = JSON.parse(data["ConsumedProofs"].Value);
+        return Array.isArray(list) ? list : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function proofAlreadyConsumed(sku, proof) {
+    return readConsumedProofs().indexOf(consumedProofKey(sku, proof)) !== -1;
+}
+
+function recordConsumedProof(sku, proof) {
+    var list = readConsumedProofs();
+    list.push(consumedProofKey(sku, proof));
+    if (list.length > CONSUMED_PROOFS_KEPT) {
+        list = list.slice(list.length - CONSUMED_PROOFS_KEPT);
+    }
+    server.UpdateUserInternalData({
+        PlayFabId: currentPlayerId,
+        Data: { "ConsumedProofs": JSON.stringify(list) }
+    });
+}
+
+function isBanned(playFabId) {
+    var res;
+    try {
+        res = server.GetUserBans({ PlayFabId: playFabId });
+    } catch (e) {
+        log.error("Ban lookup failed, allowing the request: " + e);
+        return false;
+    }
+
+    var bans = (res && res.BanData) ? res.BanData : [];
+    var now = Date.now();
+    for (var i = 0; i < bans.length; i++) {
+        var ban = bans[i];
+        if (!ban || ban.Active === false) continue;
+        if (!ban.Expires) return true;
+        var expires = new Date(ban.Expires).getTime();
+        if (isNaN(expires) || expires > now) return true;
+    }
+    return false;
+}
+
+function versionAllowed(clientVersion, minimum) {
+    if (!isNonEmptyString(minimum)) return true;
+    if (!isNonEmptyString(clientVersion)) return false;
+    return compareVersions(clientVersion, minimum) >= 0;
+}
+
+function compareVersions(a, b) {
+    var pa = String(a).split(".");
+    var pb = String(b).split(".");
+    var len = Math.max(pa.length, pb.length);
+    for (var i = 0; i < len; i++) {
+        var na = parseInt(pa[i], 10) || 0;
+        var nb = parseInt(pb[i], 10) || 0;
+        if (na !== nb) return na < nb ? -1 : 1;
+    }
+    return 0;
+}
+
+function requireVerified(handlerName) {
+    if (isIdentityVerified(currentPlayerId, IDENTITY_MAX_AGE_SECONDS)) return null;
+    log.error(handlerName + " denied: identity not verified. Player: " + currentPlayerId);
+    return { error: "Identity not verified" };
+}
+
+function devBypassActive(raw) {
+    if (!isNonEmptyString(raw)) return false;
+    var expires = new Date(raw);
+    if (isNaN(expires.getTime())) return false;
+    return expires.getTime() > Date.now();
+}
+
+function code(v) {
+    var s = sanitize(v).replace(/`/g, "'");
+    return "`" + s + "`";
+}
+
+function titleRateLimited(bucket, maxPerMinute) {
+    var key = "RATE_" + bucket.replace(/[^A-Za-z0-9_]/g, "_");
+    var minute = Math.floor(Date.now() / 60000);
+    var raw = getConfigValue(key);
+    var state = null;
+    if (raw) {
+        try { state = JSON.parse(raw); } catch (e) { state = null; }
+    }
+    if (!state || state.minute !== minute) {
+        state = { minute: minute, count: 0 };
+    }
+    if (state.count >= maxPerMinute) {
+        return true;
+    }
+    state.count += 1;
+    server.SetTitleInternalData({ Key: key, Value: JSON.stringify(state) });
+    return false;
 }
 
 function isModerator(playFabId) {

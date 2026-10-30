@@ -32,7 +32,7 @@ function makeEnv(opts) {
       WEBHOOK_BANS: "https://example.invalid/bans",
       WEBHOOK_REPORTS: "https://example.invalid/reports"
     }, opts.titleInternal || {}),
-    bans: [], httpCalls: [], webhooks: [], logs: []
+    bans: [], httpCalls: [], webhooks: [], logs: [], deleted: [], activeBans: (opts.activeBans || {})
   };
   const wrap = o => { const r = {}; for (const k in o) r[k] = { Value: o[k] }; return r; };
 
@@ -53,16 +53,18 @@ function makeEnv(opts) {
         const d = {}; (Keys || []).forEach(k => { if (state.titleInternal[k] !== undefined) d[k] = state.titleInternal[k]; });
         return { Data: d };
       },
+      SetTitleInternalData: ({ Key, Value }) => { state.titleInternal[Key] = Value; return {}; },
+      DeleteUser: ({ PlayFabId }) => { state.deleted.push(PlayFabId); return {}; },
       GetUserData: ({ PlayFabId }) => ({ Data: wrap(state.userData[PlayFabId] || {}) }),
       UpdateUserData: ({ PlayFabId, Data }) => { state.userData[PlayFabId] = Object.assign(state.userData[PlayFabId] || {}, Data); return {}; },
       GetUserInternalData: ({ PlayFabId }) => ({ Data: wrap(state.userInternal[PlayFabId] || {}) }),
       UpdateUserInternalData: ({ PlayFabId, Data }) => { state.userInternal[PlayFabId] = Object.assign(state.userInternal[PlayFabId] || {}, Data); return {}; },
       GetUserReadOnlyData: ({ PlayFabId }) => ({ Data: wrap(state.userReadOnly[PlayFabId] || {}) }),
       UpdateUserReadOnlyData: ({ PlayFabId, Data }) => { state.userReadOnly[PlayFabId] = Object.assign(state.userReadOnly[PlayFabId] || {}, Data); return {}; },
+      GetUserBans: ({ PlayFabId }) => ({ BanData: state.activeBans[PlayFabId] || [] }),
       BanUsers: ({ Bans }) => { Bans.forEach(b => state.bans.push(b)); return { BanData: Bans }; },
       AddUserVirtualCurrency: () => ({ Balance: 1000 }),
       GetPlayerProfile: () => ({ PlayerProfile: { DisplayName: "TestPlayer" } }),
-      DeleteUser: () => ({})
     }
   };
   vm.createContext(sandbox);
@@ -145,7 +147,7 @@ console.log("\n== 5. GetPhotonAuth is gated on server-recorded verification ==")
   });
   check("verification older than the max age is denied", () => !!stale.h.GetPhotonAuth({}).error);
 
-  const dev = makeEnv({ titleInternal: { ALLOW_UNVERIFIED_PHOTON: "true" } });
+  const dev = makeEnv({ titleInternal: { ALLOW_UNVERIFIED_PHOTON: new Date(Date.now() + 3600*1000).toISOString() } });
   check("documented dev bypass works when explicitly enabled", () => dev.h.GetPhotonAuth({}).PUN === "cHVu");
 }
 
@@ -223,11 +225,11 @@ console.log("\n== 9. Spoof-alert webhook is throttled ==");
 
 console.log("\n== 10. Voice payload is bounded before decoding ==");
 {
-  const { h } = makeEnv({ titleInternal: { WEBHOOK_VOICE: "https://example.invalid/voice" } });
+  const { h } = makeEnv({ titleInternal: { WEBHOOK_VOICE: "https://example.invalid/voice" }, userInternal: { PLAYER1: { OculusId: "META_A", IdentityVerifiedAt: new Date().toISOString() } } });
   const huge = "A".repeat(12 * 1024 * 1024);
   const r = h.SendVoiceToDiscord({ keyword: "test", audioB64: huge });
   check("oversized payload rejected", () => r.success === false && /too large/i.test(r.error), JSON.stringify(r));
-  const { h: h2 } = makeEnv({ titleInternal: { WEBHOOK_VOICE: "https://example.invalid/voice" } });
+  const { h: h2 } = makeEnv({ titleInternal: { WEBHOOK_VOICE: "https://example.invalid/voice" }, userInternal: { PLAYER1: { OculusId: "META_A", IdentityVerifiedAt: new Date().toISOString() } } });
   check("non-string audio rejected", h2.SendVoiceToDiscord({ audioB64: { a: 1 } }).success === false);
 }
 
@@ -241,6 +243,153 @@ console.log("\n== 11. Handlers survive a null/absent FunctionParameter ==");
   let threw = [];
   names.forEach(n => { try { h[n](null, {}); } catch (e) { threw.push(n + ": " + e.message); } });
   check("no handler throws on a null args object", threw.length === 0, threw.join(" | "));
+}
+
+const VERIFIED = { PLAYER1: { OculusId: "META_A", IdentityVerifiedAt: new Date().toISOString() } };
+
+console.log("\n== 12. Destructive handlers are behind the identity gate ==");
+{
+  // A session minted from a harvested OUID never passes VOI. Before this gate it
+  // could still ban, delete and rename the victim.
+  const names = ["ACB", "banPlayer", "permBanPlayer", "RequestAccountDeletion"];
+  for (const n of names) {
+    const un = makeEnv({});
+    const r = un.h[n]({ reason: "x", duration: 1 });
+    check(`${n} refuses an unverified session`, () => r && r.error === "Identity not verified", JSON.stringify(r));
+    check(`${n} unverified: no ban, no deletion flag written`,
+          () => un.state.bans.length === 0 && !(un.state.userReadOnly.PLAYER1 && un.state.userReadOnly.PLAYER1.pendingDeletion));
+  }
+  const ok = makeEnv({ userInternal: VERIFIED });
+  ok.h.permBanPlayer({ reason: "self" });
+  check("permBanPlayer still works for a verified session", () => ok.state.bans.length === 1);
+  const ok2 = makeEnv({ userInternal: VERIFIED });
+  ok2.h.RequestAccountDeletion({});
+  check("RequestAccountDeletion still works for a verified session",
+        () => ok2.state.userReadOnly.PLAYER1 && ok2.state.userReadOnly.PLAYER1.pendingDeletion === "true");
+}
+
+console.log("\n== 13. The actual DeleteUser is not client-callable ==");
+{
+  const past = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString();
+  const pending = { PLAYER1: { pendingDeletion: "true", deletionRequestedAt: past } };
+
+  const client = makeEnv({ userReadOnly: pending });
+  const r1 = client.h.PerformDeletionChecks({}, {});
+  check("client call is refused", () => r1.deleted === false && !!r1.error, JSON.stringify(r1));
+  check("client call deletes nothing", () => client.state.deleted.length === 0);
+
+  const task = makeEnv({ userReadOnly: pending });
+  const r2 = task.h.PerformDeletionChecks({}, { triggeredByTask: { Name: "sweep", Id: "t1" } });
+  check("scheduled task can delete after the window", () => r2.deleted === true && task.state.deleted.includes("PLAYER1"));
+
+  const early = makeEnv({ userReadOnly: { PLAYER1: { pendingDeletion: "true", deletionRequestedAt: new Date().toISOString() } } });
+  const r3 = early.h.PerformDeletionChecks({}, { triggeredByTask: { Name: "sweep", Id: "t1" } });
+  check("scheduled task does not delete inside the window", () => r3.deleted === false && early.state.deleted.length === 0);
+}
+
+console.log("\n== 14. The dev bypass expires ==");
+{
+  const future = new Date(Date.now() + 3600 * 1000).toISOString();
+  const past = new Date(Date.now() - 3600 * 1000).toISOString();
+  check("future expiry grants AppIds to an unverified session",
+        () => makeEnv({ titleInternal: { ALLOW_UNVERIFIED_PHOTON: future } }).h.GetPhotonAuth({}).PUN === "cHVu");
+  check("expired flag is ignored",
+        () => !!makeEnv({ titleInternal: { ALLOW_UNVERIFIED_PHOTON: past } }).h.GetPhotonAuth({}).error);
+  check("the old boolean \"true\" no longer works",
+        () => !!makeEnv({ titleInternal: { ALLOW_UNVERIFIED_PHOTON: "true" } }).h.GetPhotonAuth({}).error);
+  check("garbage value is ignored",
+        () => !!makeEnv({ titleInternal: { ALLOW_UNVERIFIED_PHOTON: "yes please" } }).h.GetPhotonAuth({}).error);
+}
+
+console.log("\n== 15. Webhooks have a title-wide ceiling, not just per-account ==");
+{
+  // Accounts are free, so a per-account limit is N accounts = N posts. The title
+  // bucket caps the whole title regardless of how many accounts are rotated.
+  const env = makeEnv({ userInternal: VERIFIED });
+  let posted = 0;
+  for (let i = 0; i < 60; i++) {
+    // Rotate the caller each time so the per-account limiter never trips.
+    env.sandbox.currentPlayerId = "ACCT" + i;
+    env.state.userInternal["ACCT" + i] = VERIFIED.PLAYER1;
+    const before = env.state.webhooks.length;
+    env.h.permBanPlayer({ reason: "spam" });
+    if (env.state.webhooks.length > before) posted++;
+  }
+  check("60 fresh accounts cannot exceed the per-minute title ceiling",
+        () => posted <= 30, "posted=" + posted);
+  check("the ceiling is not zero (legitimate posts still go out)", () => posted >= 1, "posted=" + posted);
+}
+
+console.log("\n== 16. Entitlement proofs cannot be replayed ==");
+{
+  const env = makeEnv({ userInternal: VERIFIED, graphResponse: { success: true } });
+  const r1 = env.h.GrantOculusCurrency({ MetaId: "META_A", UserProof: "proof-1", Sku: "buyonethousand" });
+  const r2 = env.h.GrantOculusCurrency({ MetaId: "META_A", UserProof: "proof-1", Sku: "buyonethousand" });
+  check("first redemption succeeds", () => r1.success === true, JSON.stringify(r1));
+  check("replaying the same proof is refused", () => r2.success === false, JSON.stringify(r2));
+  const graphCalls = env.state.httpCalls.filter(c => c.url.indexOf("consume_entitlement") !== -1).length;
+  check("the replay never reaches Oculus", () => graphCalls === 1, "consume calls=" + graphCalls);
+  const r3 = env.h.GrantOculusCurrency({ MetaId: "META_A", UserProof: "proof-2", Sku: "buyonethousand" });
+  check("a different proof still works", () => r3.success === true);
+
+  const iap = makeEnv({ userInternal: VERIFIED, graphResponse: { success: true } });
+  const a = iap.h.CompleteIAPPurchase({ MetaId: "META_A", UserProof: "p", Sku: "thing" });
+  const b = iap.h.CompleteIAPPurchase({ MetaId: "META_A", UserProof: "p", Sku: "thing" });
+  check("CompleteIAPPurchase also refuses a replay", () => a === true && b === false);
+}
+
+console.log("\n== 17. Moderator bans are audited and report fields are defanged ==");
+{
+  const m = makeEnv({ playerId: "MOD1" });
+  m.h.ReportPlayer({ TargetId: "VICTIM", Reason: "Cheating" });
+  check("a moderator ban posts to the bans webhook",
+        () => m.state.webhooks.some(w => w.url.indexOf("/bans") !== -1 && w.body.indexOf("VICTIM") !== -1),
+        JSON.stringify(m.state.webhooks));
+
+  const p = makeEnv({ playerId: "PLAYER1" });
+  p.h.ReportPlayer({ TargetId: "[click me](https://evil.invalid)", TargetName: "**bold**", Reason: "x" });
+  const body = p.state.webhooks.map(w => w.body).join("");
+  check("report fields are wrapped in code spans", () => body.indexOf("`[click me](https://evil.invalid)`") !== -1, body.slice(0, 200));
+  check("reported identity is labelled as unverified client input", () => body.indexOf("client-supplied, unverified") !== -1);
+}
+
+console.log("\n== 18. A banned account cannot get the Photon AppIds ==");
+{
+  const ver = { PLAYER1: { OculusId: "META_A", IdentityVerifiedAt: new Date().toISOString() } };
+  const future = new Date(Date.now() + 86400000).toISOString();
+  const pastDate = new Date(Date.now() - 86400000).toISOString();
+
+  check("a permanent ban is refused the AppIds",
+        () => !!makeEnv({ userInternal: ver, activeBans: { PLAYER1: [{ Active: true }] } }).h.GetPhotonAuth({}).error);
+  check("an unexpired temporary ban is refused",
+        () => !!makeEnv({ userInternal: ver, activeBans: { PLAYER1: [{ Active: true, Expires: future }] } }).h.GetPhotonAuth({}).error);
+  check("an expired ban does not block",
+        () => makeEnv({ userInternal: ver, activeBans: { PLAYER1: [{ Active: true, Expires: pastDate }] } }).h.GetPhotonAuth({}).PUN === "cHVu");
+  check("an inactive ban record does not block",
+        () => makeEnv({ userInternal: ver, activeBans: { PLAYER1: [{ Active: false }] } }).h.GetPhotonAuth({}).PUN === "cHVu");
+  check("no ban record at all is fine",
+        () => makeEnv({ userInternal: ver }).h.GetPhotonAuth({}).PUN === "cHVu");
+
+  // Availability over strictness: a PlayFab outage must not lock out the title.
+  const broken = makeEnv({ userInternal: ver });
+  broken.sandbox.server.GetUserBans = () => { throw new Error("PlayFab unavailable"); };
+  check("a failed ban lookup allows the request rather than locking everyone out",
+        () => broken.h.GetPhotonAuth({}).PUN === "cHVu");
+}
+
+console.log("\n== 19. The version gate is server-side ==");
+{
+  const ver = { PLAYER1: { OculusId: "META_A", IdentityVerifiedAt: new Date().toISOString() } };
+  const env = (min) => makeEnv({ userInternal: ver, titleInternal: min ? { MIN_CLIENT_VERSION: min } : {} });
+
+  check("no minimum configured means no gate", () => env(null).h.GetPhotonAuth({}).PUN === "cHVu");
+  check("an equal version passes", () => env("3.6.0").h.GetPhotonAuth({ version: "3.6.0" }).PUN === "cHVu");
+  check("a newer version passes", () => env("3.6.0").h.GetPhotonAuth({ version: "3.7.1" }).PUN === "cHVu");
+  check("an older version is refused", () => !!env("3.6.0").h.GetPhotonAuth({ version: "3.5.9" }).error);
+  check("a missing version is refused when a minimum is set", () => !!env("3.6.0").h.GetPhotonAuth({}).error);
+  check("shorter version strings compare correctly", () => env("3.6").h.GetPhotonAuth({ version: "3.6.0" }).PUN === "cHVu");
+  check("segment 10 beats segment 9, not string order", () => env("3.9.0").h.GetPhotonAuth({ version: "3.10.0" }).PUN === "cHVu");
+  check("garbage version is refused", () => !!env("3.6.0").h.GetPhotonAuth({ version: "not-a-version" }).error);
 }
 
 console.log("\n----------------------------------------");
